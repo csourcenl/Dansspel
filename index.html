@@ -1,0 +1,202 @@
+<!DOCTYPE html>
+<html lang="nl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Dansspel</title>
+<style>
+  * { box-sizing: border-box; }
+  body { margin: 0; font-family: system-ui, sans-serif; background: #1b1035; color: #fff; text-align: center; user-select: none; }
+  h1 { margin: 12px 0 4px; }
+  #cabinet { margin: 4px; font-size: 22px; }
+  canvas { background: #2a1a52; border: 3px solid #ff5cc8; border-radius: 12px; max-width: 98vw; touch-action: none; }
+  button { font-size: 20px; padding: 10px 22px; border: 0; border-radius: 10px; background: #ff5cc8; color: #fff; cursor: pointer; margin: 6px; }
+  #pad button { font-size: 32px; width: 70px; height: 70px; padding: 0; }
+  #podium { display: flex; justify-content: center; align-items: flex-end; gap: 8px; margin: 16px; min-height: 200px; }
+  .step { width: 110px; border-radius: 8px 8px 0 0; padding-top: 6px; font-weight: bold; }
+  .s1 { height: 150px; background: #f5c400; color: #000; }
+  .s2 { height: 110px; background: #c0c0c0; color: #000; }
+  .s3 { height: 80px; background: #cd7f32; color: #000; }
+  .s4 { height: 50px; background: #555; }
+  .cup { font-size: 44px; }
+  .hidden { display: none; }
+</style>
+</head>
+<body>
+<h1>💃 Dansspel 🕺</h1>
+<div id="cabinet"></div>
+
+<div id="menu">
+  <p>Druk op de pijltjestoetsen (of de knoppen) precies als de pijl de lijn raakt.<br>
+  Dans tegen 3 tegenstanders. De winnaar krijgt een beker!</p>
+  <button id="start">Start wedstrijd</button>
+</div>
+
+<div id="game" class="hidden">
+  <div id="scores"></div>
+  <canvas id="c" width="480" height="520"></canvas>
+  <div id="pad">
+    <button data-d="0">⬅️</button><button data-d="1">⬇️</button><button data-d="2">⬆️</button><button data-d="3">➡️</button>
+  </div>
+</div>
+
+<div id="result" class="hidden">
+  <h2 id="resultTitle"></h2>
+  <div id="podium"></div>
+  <button id="again">Nog een keer spelen</button>
+</div>
+
+<script>
+const ARROWS = ['⬅️', '⬇️', '⬆️', '➡️'];
+const COLORS = ['#ff5cc8', '#5cd3ff', '#8dff5c', '#ffd35c'];
+const KEYS = { ArrowLeft: 0, ArrowDown: 1, ArrowUp: 2, ArrowRight: 3 };
+const RIVALS = [
+  { name: 'Lisa', skill: 0.55 },
+  { name: 'Sem', skill: 0.7 },
+  { name: 'Noor', skill: 0.85 },
+];
+const MEDALS = ['🏆', '🥈', '🥉', ''];
+const DURATION = 60;
+const HIT_Y = 440;
+const SPEED = 240; // pixels per seconde
+const HIT_WINDOW = 45;
+
+const canvas = document.getElementById('c');
+const ctx = canvas.getContext('2d');
+const $ = id => document.getElementById(id);
+
+let trophies = JSON.parse(localStorage.getItem('dansspel-trophies') || '[0,0,0]');
+let notes, score, combo, rivals, time, running, last, feedback, feedbackT;
+
+function renderCabinet() {
+  $('cabinet').textContent = `🏆 ${trophies[0]}   🥈 ${trophies[1]}   🥉 ${trophies[2]}`;
+}
+
+function startGame() {
+  notes = [];
+  score = 0; combo = 0; time = 0; feedback = ''; feedbackT = 0;
+  rivals = RIVALS.map(r => ({ ...r, score: 0 }));
+  let t = 1.5;
+  while (t < DURATION) {
+    notes.push({ t, d: Math.floor(Math.random() * 4), hit: false, missed: false });
+    t += 0.45 + Math.random() * 0.4;
+  }
+  $('menu').classList.add('hidden');
+  $('result').classList.add('hidden');
+  $('game').classList.remove('hidden');
+  running = true;
+  last = performance.now();
+  requestAnimationFrame(loop);
+}
+
+function press(d) {
+  if (!running) return;
+  let best = null;
+  for (const n of notes) {
+    if (n.hit || n.missed || n.d !== d) continue;
+    const dist = Math.abs((n.t - time) * SPEED);
+    if (dist < HIT_WINDOW && (!best || dist < best.dist)) best = { n, dist };
+  }
+  if (!best) { combo = 0; showFeedback('Mis!'); return; }
+  best.n.hit = true;
+  combo++;
+  const perfect = best.dist < HIT_WINDOW / 2;
+  score += (perfect ? 100 : 50) * (1 + Math.floor(combo / 10));
+  showFeedback(perfect ? 'Perfect!' : 'Goed!');
+}
+
+function showFeedback(text) { feedback = text; feedbackT = 0.5; }
+
+function update(dt) {
+  time += dt;
+  for (const n of notes) {
+    if (!n.hit && !n.missed && (time - n.t) * SPEED > HIT_WINDOW) {
+      n.missed = true; combo = 0; showFeedback('Mis!');
+      for (const r of rivals) if (Math.random() < r.skill) r.score += 60 + Math.random() * 40;
+    }
+  }
+  feedbackT -= dt;
+  if (time >= DURATION) finish();
+}
+
+function draw() {
+  ctx.clearRect(0, 0, 480, 520);
+  for (let i = 0; i < 4; i++) {
+    ctx.fillStyle = 'rgba(255,255,255,0.05)';
+    ctx.fillRect(i * 120, 0, 118, 520);
+    ctx.font = '40px sans-serif';
+    ctx.globalAlpha = 0.4;
+    ctx.fillText(ARROWS[i], i * 120 + 40, HIT_Y + 14);
+    ctx.globalAlpha = 1;
+  }
+  ctx.fillStyle = '#fff';
+  ctx.fillRect(0, HIT_Y + 22, 480, 3);
+  ctx.font = '40px sans-serif';
+  for (const n of notes) {
+    if (n.hit) continue;
+    const y = HIT_Y - (n.t - time) * SPEED;
+    if (y < -40 || y > 540) continue;
+    ctx.globalAlpha = n.missed ? 0.3 : 1;
+    ctx.fillText(ARROWS[n.d], n.d * 120 + 40, y + 14);
+  }
+  ctx.globalAlpha = 1;
+  ctx.fillStyle = '#fff';
+  ctx.font = 'bold 22px sans-serif';
+  ctx.fillText(`Tijd: ${Math.max(0, Math.ceil(DURATION - time))}`, 10, 30);
+  if (combo > 1) ctx.fillText(`Combo ${combo}`, 360, 30);
+  if (feedbackT > 0) {
+    ctx.font = 'bold 36px sans-serif';
+    ctx.fillStyle = COLORS[3];
+    ctx.fillText(feedback, 170, 250);
+  }
+  const all = [{ name: 'Jij', score }, ...rivals].sort((a, b) => b.score - a.score);
+  $('scores').textContent = all.map(p => `${p.name}: ${Math.round(p.score)}`).join('  |  ');
+}
+
+function loop(now) {
+  if (!running) return;
+  const dt = Math.min(0.05, (now - last) / 1000);
+  last = now;
+  update(dt);
+  draw();
+  if (running) requestAnimationFrame(loop);
+}
+
+function finish() {
+  running = false;
+  const ranking = [{ name: 'Jij', score, me: true }, ...rivals]
+    .map(p => ({ ...p, score: Math.round(p.score) }))
+    .sort((a, b) => b.score - a.score);
+  const place = ranking.findIndex(p => p.me);
+  if (place < 3) {
+    trophies[place]++;
+    localStorage.setItem('dansspel-trophies', JSON.stringify(trophies));
+  }
+  renderCabinet();
+  $('resultTitle').textContent = [
+    '🎉 Je wint de gouden beker!',
+    'Tweede plaats! Zilveren beker!',
+    'Derde plaats! Bronzen beker!',
+    'Vierde plaats… probeer het nog eens!',
+  ][place];
+  // podium volgorde: 2e, 1e, 3e, 4e
+  const order = [1, 0, 2, 3];
+  $('podium').innerHTML = order.map(i => {
+    const p = ranking[i];
+    return `<div class="step s${i + 1}"><div class="cup">${MEDALS[i]}</div>${p.name}${p.me ? ' ⭐' : ''}<br>${p.score}</div>`;
+  }).join('');
+  $('game').classList.add('hidden');
+  $('result').classList.remove('hidden');
+}
+
+document.addEventListener('keydown', e => {
+  if (e.key in KEYS) { e.preventDefault(); press(KEYS[e.key]); }
+});
+document.querySelectorAll('#pad button').forEach(b =>
+  b.addEventListener('pointerdown', e => { e.preventDefault(); press(+b.dataset.d); }));
+$('start').onclick = startGame;
+$('again').onclick = startGame;
+renderCabinet();
+</script>
+</body>
+</html>
