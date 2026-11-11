@@ -101,7 +101,7 @@ function press(d) {
   best.n.hit = true;
   combo++;
   const perfect = best.dist < HIT_WINDOW / 2;
-  score += (perfect ? 100 : 50) * (1 + Math.floor(combo / 10));
+  score += (perfect ? 100 : 50) * (1 + Math.min(3, Math.floor(combo / 10)));
   showFeedback(perfect ? 'Perfect!' : 'Goed!');
 }
 
@@ -110,9 +110,12 @@ function showFeedback(text) { feedback = text; feedbackT = 0.5; }
 function update(dt) {
   time += dt;
   for (const n of notes) {
+    if (!n.rivalsDone && time >= n.t) {
+      n.rivalsDone = true;
+      for (const r of rivals) if (Math.random() < r.skill) r.score += 70 + Math.random() * 30;
+    }
     if (!n.hit && !n.missed && (time - n.t) * SPEED > HIT_WINDOW) {
       n.missed = true; combo = 0; showFeedback('Mis!');
-      for (const r of rivals) if (Math.random() < r.skill) r.score += 60 + Math.random() * 40;
     }
   }
   feedbackT -= dt;
